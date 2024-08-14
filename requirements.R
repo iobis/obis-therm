@@ -7,6 +7,9 @@
 # Needed packages on CRAN
 req_packages <- c(
   "terra",
+  "sf",
+  "sfarrow",
+  "h3jsr",
   "reticulate",
   "arrow",
   "parallel",

@@ -1,10 +1,9 @@
-#################### eDNA expeditions - scientific analysis ####################
-########################## Environmental data download #########################
+######################### OBIS sea temperature dataset ########################
 # January of 2024
 # Author: Silas C. Principe
 # Contact: s.principe@unesco.org
 #
-######################## Sea temperature from Copernicus #######################
+################################# Data download ################################
 
 # Flags
 # 0 = no problem
@@ -29,10 +28,17 @@ library(tidyr)
 cm <- import("copernicusmarine")
 source("functions/nearby_extract.R")
 source("functions/dates.R")
+source("functions/subset_grid.R")
+source("functions/download_data.R")
 
 # Settings ----
-.user <- rstudioapi::askForPassword("Enter your user")
-.pwd <- rstudioapi::askForPassword("Enter your password")
+if (Sys.getenv("COPERNICUS_USER") != "") {
+  .user <- Sys.getenv("COPERNICUS_USER")
+  .pwd <- Sys.getenv("COPERNICUS_PWD")
+} else {
+  .user <- rstudioapi::askForPassword("Enter your user")
+  .pwd <- rstudioapi::askForPassword("Enter your password")
+}
 
 outfolder <- "temp"
 outfolder_final <- "results"
@@ -41,9 +47,9 @@ fs::dir_create(outfolder_final)
 filename <- "var=thetao"
 coordnames <- c("decimalLongitude", "decimalLatitude")
 
-# Define target dataset, time and depths
+# Define target dataset for Copernicus, time and depths
 dataset <- "cmems_mod_glo_phy_my_0.083deg_P1M-m"
-product <- "glorys"
+product <- "glorys" # This is also used to name the files, as the "core" product
 variables <- list("thetao")
 
 ds_sample <- cm$open_dataset(
@@ -153,56 +159,13 @@ for (yr in seq_along(range_year)) {
       # GLORYS PRODUCT ----
       if (sel_year %in% glorys_range) {
         
-        success <- try(lapply(unique(obis_sel_month$workID), function(id){
-          # Get longitude and latitude range and add a buffer
-          long_range <- range(obis_sel_month$decimalLongitude[obis_sel_month$workID == id])
-          long_range <- long_range + c(-2, 2)
-          
-          lat_range <- range(obis_sel_month$decimalLatitude[obis_sel_month$workID == id])
-          lat_range <- lat_range + c(-2, 2)
-          
-          # Check if lon/lat are valid
-          if (long_range[1] < -180) long_range[1] <- -180
-          if (long_range[2] > 180) long_range[2] <- 180
-          if (lat_range[1] < -90) lat_range[1] <- -90
-          if (lat_range[2] > 90) lat_range[2] <- 90
-          
-          # Define outfile for the temp file
-          outfile <- paste0("temp_", sel_year, "_", sel_month, "_", id)
-          
-          # Download data
-          cm$subset(
-            dataset_id = dataset,
-            variables = variables,
-            username = .user,
-            password = .pwd,
-            minimum_longitude = long_range[1],
-            maximum_longitude = long_range[2],
-            minimum_latitude = lat_range[1],
-            maximum_latitude = lat_range[2],
-            start_datetime = paste0(sel_year, "-", sprintf("%02d", sel_month), "-01T00:00:00"),
-            end_datetime = paste0(sel_year, "-", sprintf("%02d", sel_month), "-",
-                                  lubridate::days_in_month(lubridate::as_date(paste(sel_year, sel_month, sep = "-"), format = "%Y-%m"))
-                                  ,"T23:59:59"),
-            # minimum_depth = min(depths$depth),
-            # maximum_depth = max(depths$depth),
-            output_filename = outfile,
-            output_directory = outfolder,
-            force_download = TRUE
-          )
-          
-          return(outfile)
-          
-        }))
+        success <- try(download_temp("glorys", obis_sel_month, sel_month, sel_year,
+                                     outfolder, dataset = dataset, 
+                                     variables = variables))
         
         if (!inherits(success, "try-error")) {
           
-          ind_layers <- lapply(paste0(outfolder, "/", unlist(success), ".nc"), terra::rast)
-          if (length(ind_layers) > 1) {
-            layer <- terra::merge(terra::sprc(ind_layers))
-          } else {
-            layer <- terra::rast(ind_layers)
-          }
+          layer <- load_layers(outfolder, success)
           
           max_dep <- terra::app(layer, fun = function(x) {
             if (any(!is.na(x))) {
@@ -357,51 +320,14 @@ for (yr in seq_along(range_year)) {
         
         cat("Downloading CoralTemp\n")
         
-        success <- try(lapply(unique(obis_sel_month$workID), function(id){
-          # Get longitude and latitude range and add a buffer
-          long_range <- range(obis_sel_month$decimalLongitude[obis_sel_month$workID == id])
-          long_range <- long_range + c(-2, 2)
-          
-          lat_range <- range(obis_sel_month$decimalLatitude[obis_sel_month$workID == id])
-          lat_range <- lat_range + c(-2, 2)
-          
-          # Check if lon/lat are valid
-          if (long_range[1] < -179.975) long_range[1] <- -179.975
-          if (long_range[2] > 179.975) long_range[2] <- 179.975
-          if (lat_range[1] < -89.975) lat_range[1] <- -89.975
-          if (lat_range[2] > 89.975) lat_range[2] <- 89.975
-          
-          # Define outfile for the temp file
-          outfile <- paste0("temp_", sel_year, "_", sel_month, "_", id, "_ct")
-          
-          # Download data
-          rerddap::griddap(
-            "NOAA_DHW_monthly",
-            time = rep(paste0(sel_year, "-", sprintf("%02d", sel_month), "-16T00:00:00Z"), 2),
-            latitude = lat_range,
-            longitude = long_range,
-            fields = "sea_surface_temperature",
-            fmt = "nc",
-            url = "https://coastwatch.pfeg.noaa.gov/erddap",
-            store = rerddap::disk(paste0(outfolder, "/", outfile)),
-            read = FALSE
-          )
-          
-          return(outfile)
-          
-        }))
+        success <- try(download_temp("coraltemp", obis_sel_month, sel_month, sel_year,
+                                     outfolder))
         
         if (!inherits(success, "try-error")) {
           
           cat("Proccessing CoralTemp\n")
           
-          ind_layers <- lapply(list.files(paste0(outfolder, "/", success), full.names = T), terra::rast)
-          ind_layers <- lapply(ind_layers, terra::flip)
-          if (length(ind_layers) > 1) {
-            layer <- terra::merge(terra::sprc(ind_layers))
-          } else {
-            layer <- terra::rast(ind_layers)
-          }
+          layer <- load_layers(outfolder, success)
           
           surface_ct_vals <- terra::extract(layer, obis_sel_month[,coordnames], ID = F)
           
@@ -414,7 +340,7 @@ for (yr in seq_along(range_year)) {
           all_vals$flag[na_to_solve[!is.na(surface_ct_vals[na_to_solve, 1])]] <- 
             all_vals$flag[na_to_solve[!is.na(surface_ct_vals[na_to_solve, 1])]] + 64
           
-          all_vals$coraltempSST <- surface_mt_vals[,1]
+          all_vals$coraltempSST <- surface_ct_vals[,1]
           
         }
         
@@ -429,50 +355,14 @@ for (yr in seq_along(range_year)) {
         
         cat("Downloading MUR\n")
         
-        success <- try(lapply(unique(obis_sel_month$workID), function(id){
-          # Get longitude and latitude range and add a buffer
-          long_range <- range(obis_sel_month$decimalLongitude[obis_sel_month$workID == id])
-          long_range <- long_range + c(-2, 2)
-          
-          lat_range <- range(obis_sel_month$decimalLatitude[obis_sel_month$workID == id])
-          lat_range <- lat_range + c(-2, 2)
-          
-          # Check if lon/lat are valid
-          if (long_range[1] < -179.99) long_range[1] <- -179.99
-          if (long_range[2] > 180) long_range[2] <- 180
-          if (lat_range[1] < -89.99) lat_range[1] <- -89.99
-          if (lat_range[2] > 89.99) lat_range[2] <- 89.99
-          
-          # Define outfile for the temp file
-          outfile <- paste0("temp_", sel_year, "_", sel_month, "_", id, "_mur")
-          
-          # Download data
-          rerddap::griddap(
-            "jplMURSST41mday",
-            time = rep(paste0(sel_year, "-", sprintf("%02d", sel_month), "-16T00:00:00Z"), 2),
-            latitude = lat_range,
-            longitude = long_range,
-            fields = "sst",
-            fmt = "nc",
-            url = "https://coastwatch.pfeg.noaa.gov/erddap",
-            store = rerddap::disk(paste0(outfolder, "/", outfile)),
-            read = FALSE
-          )
-          
-          return(outfile)
-          
-        }))
+        success <- try(download_temp("mur", obis_sel_month, sel_month, sel_year,
+                                     outfolder))
         
         if (!inherits(success, "try-error")) {
           
           cat("Proccessing MUR\n")
           
-          ind_layers <- lapply(list.files(paste0(outfolder, "/", success), full.names = T), terra::rast)
-          if (length(ind_layers) > 1) {
-            layer <- terra::merge(terra::sprc(ind_layers))
-          } else {
-            layer <- terra::rast(ind_layers)
-          }
+          layer <- load_layers(outfolder, success)
           
           surface_mt_vals <- terra::extract(layer, obis_sel_month[,coordnames], ID = F)
           
@@ -505,7 +395,9 @@ for (yr in seq_along(range_year)) {
       
       all_vals <- all_vals[have_data,]
       
-      write_parquet(all_vals, paste0(outfolder_final, "/", product, "_", sel_year, "_", sel_month, ".parquet"))
+      if (nrow(all_vals) > 0) {
+        write_parquet(all_vals, paste0(outfolder_final, "/", product, "_", sel_year, "_", sel_month, ".parquet"))
+      }
       
       d_files <- list.files(outfolder, full.names = T)
       d_files <- d_files[grepl(paste0(sel_year, "_", sel_month), d_files)]
@@ -518,5 +410,8 @@ for (yr in seq_along(range_year)) {
     }
   }
 }
+
+fs::dir_create("logs")
+write.csv(log_df, paste0("logs/log_", format(Sys.Date(), "%Y%m%d"), ".csv"), row.names = F)
 
 # END

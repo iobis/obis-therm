@@ -12,7 +12,24 @@ At this moment, the dataset include temperature information from three sources:
 
 ## Codes
 
-The production of this dataset is simple and depends on a single code: `get_temperatures.R` (and associated functions. Ensure that all requirements are met (see `requirements.R`).
+The production of this dataset is simple and depends on a single code: `get_temperatures.R` (and associated functions). Ensure that all requirements are met (see `requirements.R`).
+
+Once the data is downloaded, the separate `parquet` files are aggregated and the H3 index is added. This is done through the `aggregate_files.R`
+
+For downloading data from Copernicus you will need a valid account (you can create one for free [here](https://data.marine.copernicus.eu/register)). You should then store your credentials on the environment using the following:
+
+```
+usethis::edit_r_environ()
+```
+
+And then add:
+
+```
+COPERNICUS_USER="your user")
+COPERNICUS_PWD="your password")
+```
+
+Alternatively, you can supply the credentials directly in the code.
 
 ## Accessing the dataset
 
