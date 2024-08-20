@@ -37,7 +37,8 @@ download_temp <- function(temp_source,
     temp_source,
     glorys = rlang::exec(.download_glorys, !!!arguments),
     coraltemp = rlang::exec(.download_coraltemp, !!!arguments),
-    mur = rlang::exec(.download_mur, !!!arguments)
+    mur = rlang::exec(.download_mur, !!!arguments),
+    ostia = rlang::exec(.download_ostia, !!!arguments)
   )
   
   return(download_res)
@@ -218,6 +219,81 @@ download_temp <- function(temp_source,
 }
 
 
+#' Download data from Copernicus OSTIA
+#'
+#' @param obis_sel_month OBIS data prepared with workID (subset grid)
+#' @param sel_month selected month for download
+#' @param sel_year selected year for download
+#' @param outfolder output folder for the environmental data files
+#' @param variables variables of the dataset
+#'
+#' @return list of files
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' 
+#' }
+.download_ostia <- function(obis_sel_month, sel_month, sel_year, outfolder,
+                             variables = list("analysed_sst")) {
+  
+  outfile_list <- lapply(unique(obis_sel_month$workID), function(id){
+    # Get longitude and latitude range and add a buffer
+    long_range <- range(obis_sel_month$decimalLongitude[obis_sel_month$workID == id])
+    long_range <- long_range + c(-2, 2)
+    
+    lat_range <- range(obis_sel_month$decimalLatitude[obis_sel_month$workID == id])
+    lat_range <- lat_range + c(-2, 2)
+    
+    # Check if lon/lat are valid
+    if (long_range[1] < -179.975) long_range[1] <- -179.975
+    if (long_range[2] > 179.975) long_range[2] <- 179.975
+    if (lat_range[1] < -89.975) lat_range[1] <- -89.975
+    if (lat_range[2] > 89.975) lat_range[2] <- 89.975
+    
+    # Define outfile for the temp file
+    outfile <- paste0("temp_", sel_year, "_", sel_month, "_", id)
+    
+    # Download data
+    cm$subset(
+      dataset_id = "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2",
+      variables = variables,
+      username = .user,
+      password = .pwd,
+      minimum_longitude = long_range[1],
+      maximum_longitude = long_range[2],
+      minimum_latitude = lat_range[1],
+      maximum_latitude = lat_range[2],
+      start_datetime = paste0(sel_year, "-", sprintf("%02d", sel_month), "-01T00:00:00"),
+      end_datetime = paste0(sel_year, "-", sprintf("%02d", sel_month), "-",
+                            lubridate::days_in_month(lubridate::as_date(paste(sel_year, sel_month, sep = "-"), format = "%Y-%m"))
+                            ,"T23:59:59"),
+      # minimum_depth = min(depths$depth),
+      # maximum_depth = max(depths$depth),
+      output_filename = outfile,
+      output_directory = outfolder,
+      force_download = TRUE
+    )
+
+    outfile_r <- terra::rast(file.path(outfolder, paste0(outfile, ".nc")))
+    outfile_r <- mean(outfile_r, na.rm = T)
+    outfile_r <- outfile_r - 273.15
+
+    outfile_old <- outfile
+    outfile <- paste0(outfile, "_mon")
+
+    writeCDF(outfile_r, file.path(outfolder, paste0(outfile, ".nc")), overwrite = T)
+    fs::file_delete(file.path(outfolder, paste0(outfile_old, ".nc")))
+    
+    return(outfile)
+    
+  })
+  
+  return(outfile_list)
+  
+}
+
+
 #' Load and mosaic layers
 #'
 #' @param outfolder folder where temporary files are stored
@@ -239,8 +315,11 @@ load_layers <- function(outfolder, files_list) {
     files_list <- paste0(outfolder, "/", unlist(files_list), ".nc")
   }
   ind_layers <- lapply(files_list, terra::rast)
+  if (grepl("_ct", files_list[1])) {
+    ind_layers <- lapply(ind_layers, terra::flip)
+  }
   if (length(ind_layers) > 1) {
-    layer <- terra::merge(terra::sprc(ind_layers))
+    layer <- terra::merge(terra::sprc(ind_layers), overwrite = T)
   } else {
     layer <- terra::rast(ind_layers)
   }

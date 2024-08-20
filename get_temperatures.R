@@ -9,12 +9,14 @@
 # 0 = no problem
 # 1 = date is range
 # 2 = surfaceTemperature is approximated
-# 4 = medianTemperature is approximated
-# 8 = bottomTemperature is approximated
+# 4 = midTemperature is approximated
+# 8 = deepTemperature is approximated
 # 16 = minimumDepthTemperature is approximated
 # 32 = maximumDepthTemperature is approximated
-# 64 = coraltempSST is approximated
-# 128 = murSST is approximated
+# 64 = bottomTemperature is approximated
+# 128 = coraltempSST is approximated
+# 256 = murSST is approximated
+# 512 = ostiaSST is approximated
 # Flags can be summed. 
 # E.g. a flag = 6 means that date is range and surfaceTemperature and medianTemperature are approximated
 
@@ -30,6 +32,7 @@ source("functions/nearby_extract.R")
 source("functions/dates.R")
 source("functions/subset_grid.R")
 source("functions/download_data.R")
+source("functions/utils.R")
 
 # Settings ----
 if (Sys.getenv("COPERNICUS_USER") != "") {
@@ -66,37 +69,38 @@ ds_sample <- cm$open_dataset(
 # Print loaded dataset information
 print(ds_sample)
 
-# Get available depths
+# Get available depths and maximum date of first dataset
 depths <- ds_sample$depth$to_dataframe()
+glorys1_max_date <- max(ds_sample$time$to_dataframe()[,1])
 
 # Define range of dates to get information
-range_year <- 1985:2024
+range_year <- 2023
 range_month <- 1:12
 
 # Open OBIS dataset
-obis_ds <- open_dataset("../../mpa_europe/mpaeu_shared/obis_20231025.parquet")
+obis_ds <- open_dataset(get_obis())
 
 # Limit by selected columns
 obis_filt <- obis_ds %>%
-  select(AphiaID, species, family, 
-         occurrenceID, datasetID,
+  select(AphiaID, species, family,
+         id, dataset_id, occurrenceID, datasetID,
          minimumDepthInMeters, maximumDepthInMeters,
          decimalLongitude, decimalLatitude,
          eventDate, date_start, date_mid, date_end) %>%
-  filter(!is.na(eventDate)) %>%
-  filter(family == "Ocypodidae")
+  filter(!is.na(eventDate))
 
 # Define ranges that are available per product
-glorys_range <- 1993:2023
+glorys_range <- 1993:lubridate::year(Sys.Date())
 coraltemp_range <- 1986:lubridate::year(Sys.Date())
 mur_range <- 2002:lubridate::year(Sys.Date())
-
+ostia_range <- 2007:lubridate::year(Sys.Date())
 
 log_df <- data.frame(year = rep(range_year, each = 12), 
                      month = rep(range_month, length(range_year)),
                      status_glorys = NA,
                      status_coraltemp = NA,
                      status_mur = NA,
+                     status_ostia = NA,
                      status_general = NA)
 
 for (yr in seq_along(range_year)) {
@@ -143,21 +147,29 @@ for (yr in seq_along(range_year)) {
       all_vals <- data.frame(
         temp_ID = obis_sel_month$temp_ID,
         surfaceTemperature = NA,
-        medianTemperature = NA,
+        midTemperature = NA,
+        deepTemperature = NA,
         bottomTemperature = NA,
-        medianDepth = NA,
-        bottomDepth = NA,
+        midDepth = NA,
+        deepDepth = NA,
         minimumDepthTemperature = NA,
         maximumDepthTemperature = NA,
         minimumDepthClosestDepth = NA,
         maximumDepthClosestDepth = NA,
         coraltempSST = NA,
         murSST = NA,
+        ostiaSST = NA,
         flag = obis_sel_month$flagDate
       )
       
       # GLORYS PRODUCT ----
       if (sel_year %in% glorys_range) {
+
+        if (as.Date(paste0(sel_year, "-", sprintf("%02d", sel_month), "-01")) <= glorys1_max_date) {
+          dataset <- "cmems_mod_glo_phy_my_0.083deg_P1M-m"
+        } else {
+          dataset <- "cmems_mod_glo_phy_myint_0.083deg_P1M-m"
+        }
         
         success <- try(download_temp("glorys", obis_sel_month, sel_month, sel_year,
                                      outfolder, dataset = dataset, 
@@ -242,10 +254,10 @@ for (yr in seq_along(range_year)) {
           
           # Aggregate info
           all_vals$surfaceTemperature <- surface_vals[,1]
-          all_vals$medianTemperature <- mid_vals[,2]
-          all_vals$bottomTemperature <- max_vals[,2]
-          all_vals$medianDepth <- as.numeric(gsub(".*.=", "", mid_vals[,1]))
-          all_vals$bottomDepth <- as.numeric(gsub(".*.=", "", max_vals[,1]))
+          all_vals$midTemperature <- mid_vals[,2]
+          all_vals$deepTemperature <- max_vals[,2]
+          all_vals$midDepth <- as.numeric(gsub(".*.=", "", mid_vals[,1]))
+          all_vals$deepDepth <- as.numeric(gsub(".*.=", "", max_vals[,1]))
           
           if (any(!is.na(obis_sel_month$minimumDepthInMeters)) || any(!is.na(obis_sel_month$maximumDepthInMeters))) {
             which_have_min <- which(!is.na(obis_sel_month$minimumDepthInMeters))
@@ -309,6 +321,32 @@ for (yr in seq_along(range_year)) {
             
           }
           
+          rm(success, layer)
+          fs::file_delete(list.files(outfolder, full.names = T))
+
+          success <- try(download_temp("glorys", obis_sel_month, sel_month, sel_year,
+                                     outfolder, dataset = dataset, 
+                                     variables = list("bottomT")))
+        
+          if (!inherits(success, "try-error")) {
+            layer <- load_layers(outfolder, success)
+
+            bottom_vals <- terra::extract(layer[[1]], obis_sel_month[,coordnames], ID = F)
+          
+            na_to_solve <- which(is.na(bottom_vals[,1]))
+          
+            near_bottom_vals <- get_nearby(obis_sel_month[na_to_solve, coordnames],
+                                          layer[[1]], mode = "24")
+          
+            bottom_vals[na_to_solve,] <- near_bottom_vals
+            all_vals$flag[na_to_solve][!is.na(bottom_vals[na_to_solve,])] <-
+              all_vals$flag[na_to_solve][!is.na(bottom_vals[na_to_solve,])] + 64
+            
+            all_vals$bottomTemperature <- bottom_vals[,1]
+
+          }
+          fs::file_delete(list.files(outfolder, full.names = T))
+
         }
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_glorys"] <- "concluded"
       } else {
@@ -338,11 +376,13 @@ for (yr in seq_along(range_year)) {
                                                         type = "mean")
           
           all_vals$flag[na_to_solve[!is.na(surface_ct_vals[na_to_solve, 1])]] <- 
-            all_vals$flag[na_to_solve[!is.na(surface_ct_vals[na_to_solve, 1])]] + 64
+            all_vals$flag[na_to_solve[!is.na(surface_ct_vals[na_to_solve, 1])]] + 128
           
           all_vals$coraltempSST <- surface_ct_vals[,1]
           
         }
+
+        fs::file_delete(list.files(outfolder, full.names = T))
         
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_coraltemp"] <- "concluded"
       } else {
@@ -373,16 +413,56 @@ for (yr in seq_along(range_year)) {
                                                              type = "mean")
           
           all_vals$flag[na_to_solve[!is.na(surface_mt_vals[na_to_solve, 1])]] <- 
-            all_vals$flag[na_to_solve[!is.na(surface_mt_vals[na_to_solve, 1])]] + 128
+            all_vals$flag[na_to_solve[!is.na(surface_mt_vals[na_to_solve, 1])]] + 256
           
           all_vals$murSST <- surface_mt_vals[,1]
           
         }
+
+        fs::file_delete(list.files(outfolder, full.names = T))
         
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_mur"] <- "concluded"
       } else {
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_mur"] <- "unavailable"
       }
+
+
+      # OSTIA PRODUCT ----
+      if (sel_year %in% ostia_range) {
+        
+        cat("Downloading OSTIA\n")
+        
+        success <- try(download_temp("ostia", obis_sel_month, sel_month, sel_year,
+                                     outfolder))
+        
+        if (!inherits(success, "try-error")) {
+          
+          cat("Proccessing OSTIA\n")
+          
+          layer <- load_layers(outfolder, success)
+          
+          surface_os_vals <- terra::extract(layer, obis_sel_month[,coordnames], ID = F)
+          
+          na_to_solve <- which(is.na(surface_os_vals[,1]))
+          
+          surface_os_vals[na_to_solve, 1] <- get_nearby(obis_sel_month[na_to_solve, coordnames],
+                                                             layer, mode = "24",
+                                                             type = "mean")
+          
+          all_vals$flag[na_to_solve[!is.na(surface_os_vals[na_to_solve, 1])]] <- 
+            all_vals$flag[na_to_solve[!is.na(surface_os_vals[na_to_solve, 1])]] + 512
+          
+          all_vals$ostiaSST <- surface_os_vals[,1]
+          
+        }
+
+        fs::file_delete(list.files(outfolder, full.names = T))
+        
+        log_df[log_df$year == sel_year & log_df$month == sel_month, "status_ostia"] <- "concluded"
+      } else {
+        log_df[log_df$year == sel_year & log_df$month == sel_month, "status_ostia"] <- "unavailable"
+      }
+
       
       all_vals <- left_join(obis_sel_month, all_vals, by = "temp_ID") %>%
         select(-temp_ID, -workID, -flagDate)
