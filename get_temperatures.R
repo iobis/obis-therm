@@ -27,8 +27,10 @@ library(arrow)
 library(parallel)
 library(dplyr)
 library(tidyr)
+library(storr)
 cm <- import("copernicusmarine")
-source("functions/nearby_extract.R")
+xr <- import("xarray")
+source("functions/nearby_xy.R")
 source("functions/dates.R")
 source("functions/subset_grid.R")
 source("functions/download_data.R")
@@ -43,6 +45,7 @@ if (Sys.getenv("COPERNICUS_USER") != "") {
   .pwd <- rstudioapi::askForPassword("Enter your password")
 }
 
+st <- storr_rds("control_storr")
 outfolder <- "temp"
 outfolder_final <- "results"
 fs::dir_create(outfolder)
@@ -72,6 +75,80 @@ print(ds_sample)
 # Get available depths and maximum date of first dataset
 depths <- ds_sample$depth$to_dataframe()
 glorys1_max_date <- max(ds_sample$time$to_dataframe()[,1])
+
+# Get samples of datasets
+fs::dir_create("samples")
+
+if (!file.exists("samples/glorys.nc")) {
+  outf <- cm$get(
+    dataset_id = "cmems_mod_glo_phy_my_0.083deg_P1M-m",
+    #variables = list("thetao"),
+    username = .user,
+    password = .pwd,
+    filter = "*202101*",
+    output_directory = "samples/",
+    no_directories = T,
+    force_download = T
+  )
+  glorys_sample <- glorys_sample$sel(time = "2021-06-01", method = "nearest")
+  glorys_sample$to_netcdf("samples/glorys.nc")
+  rm(glorys_sample)
+  glorys_sample <- rast(as.character(outf[[1]]))
+  glorys_sample <- subset(glorys_sample, startsWith(names(glorys_sample), "thetao"))
+  origin(glorys_sample)[1] <- 0
+  origin(glorys_sample)[2] <- origin(glorys_sample)[2] * 2
+  writeRaster(glorys_sample, "samples/glorys_ed.nc")
+  file.remove(as.character(outf[[1]]))
+}
+
+if (!file.exists("samples/coraltemp_ed.nc")) {
+  coraltemp_sample <- xr$open_dataset("https://coastwatch.pfeg.noaa.gov/erddap/griddap/NOAA_DHW_monthly")
+  coraltemp_sample <- coraltemp_sample$sea_surface_temperature
+  coraltemp_sample <- coraltemp_sample$sel(time = paste0("2021-", 1:12, "-16"), method = "nearest")
+  coraltemp_sample$to_netcdf("samples/coraltemp.nc")
+  ct_r <- rast("samples/coraltemp.nc")
+  ct_r <- mean(ct_r, na.rm = T)
+  ct_r <- flip(ct_r)
+  writeRaster(ct_r, "samples/coraltemp_ed.nc")
+  fs::file_delete("samples/coraltemp.nc")
+  rm(coraltemp_sample, ct_r)
+}
+
+if (!file.exists("samples/mur_ed.tif")) {
+  download.file("https://coastwatch.pfeg.noaa.gov/erddap/files/jplMURSST41mday/2021060120210630-GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1.nc",
+                "samples/mur.nc", method = "wget")
+  mur <- rast("samples/mur.nc")
+  mur <- mur[[1]]
+  writeRaster(mur, "samples/mur_ed.tif")
+  fs::file_delete("samples/mur.nc")
+  rm(mur)
+}
+
+if (!file.exists("samples/ostia.nc")) {
+  ostia_sample <- cm$open_dataset(
+    dataset_id = "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2",
+    variables = list("analysed_sst"),
+    username = .user,
+    password = .pwd
+  )
+  ostia_sample <- ostia_sample$sel(time = "2021-06-01", method = "nearest")
+  ostia_sample$to_netcdf("samples/ostia.nc")
+  rm(ostia_sample)
+}
+
+glorys_sample <- rast("samples/glorys_ed.nc")
+glorys_max_dep <- terra::app(glorys_sample, fun = function(x) {
+  if (any(!is.na(x))) {
+    max(which(!is.na(x)))
+  } else {
+    NA
+  }
+})
+
+coraltemp_sample <- rast("samples/coraltemp_ed.nc")
+mur_sample <- rast("samples/mur_ed.tif")
+ostia_sample <- rast("samples/ostia.nc")
+
 
 # Define range of dates to get information
 range_year <- 2023
@@ -129,6 +206,7 @@ for (yr in seq_along(range_year)) {
   for (mo in seq_along(range_month)) {
     
     sel_month <- range_month[mo]
+    st_cod <- paste0(sel_year, sel_month)
     cat("Proccessing month", sel_month, "\n")
     
     if (nrow(obis_sel) > 0) {
@@ -136,13 +214,11 @@ for (yr in seq_along(range_year)) {
         filter(extractedDateYear == sel_year)  %>%
         filter(extractedDateMonth == sel_month) %>%
         mutate(temp_ID = seq_len(nrow(.)))
-      
-      obis_sel_month <- subset_grid(obis_sel_month)
     } else {
       obis_sel_month <- obis_sel
     }
     
-    if (nrow(obis_sel_month) > 0) {
+    if (nrow(obis_sel_month) > 0 && !st$exists(st_cod)) {
       
       all_vals <- data.frame(
         temp_ID = obis_sel_month$temp_ID,
@@ -162,6 +238,8 @@ for (yr in seq_along(range_year)) {
         flag = obis_sel_month$flagDate
       )
       
+      st$set(st_cod, "started")
+      
       # GLORYS PRODUCT ----
       if (sel_year %in% glorys_range) {
 
@@ -171,21 +249,59 @@ for (yr in seq_along(range_year)) {
           dataset <- "cmems_mod_glo_phy_myint_0.083deg_P1M-m"
         }
         
-        success <- try(download_temp("glorys", obis_sel_month, sel_month, sel_year,
-                                     outfolder, dataset = dataset, 
-                                     variables = variables))
+        obis_dataset <- obis_sel_month %>%
+          select(decimalLongitude, decimalLatitude, temp_ID,
+                 depth_min = minimumDepthInMeters, depth_max = maximumDepthInMeters) %>%
+          mutate(to_remove_dmin = ifelse(is.na(depth_min), TRUE, FALSE),
+                 to_remove_dmax = ifelse(is.na(depth_max), TRUE, FALSE),
+                 depth_min = ifelse(is.na(depth_min), 0, depth_min),
+                 depth_max = ifelse(is.na(depth_max), 0, depth_max),
+                 depth_surface = 0)
+        
+        # See which are NA
+        coords_na <- terra::extract(glorys_sample[[1]], obis_dataset[,1:2], ID = F)
+        coords_na <- which(is.na(coords_na[,1]))
+        
+        if (length(coords_na) > 1) {
+          new_coords <- get_nearby_xy(obis_dataset[coords_na, 1:2], glorys_sample[[1]])
+          na_to_rm <- which(is.na(new_coords[,1]))
+          na_approx <- which(!is.na(new_coords[,1]))
+          
+          obis_dataset$decimalLongitude[coords_na[na_approx]] <- new_coords$x[na_approx]
+          obis_dataset$decimalLatitude[coords_na[na_approx]] <- new_coords$y[na_approx]
+        }
+        
+        obis_dataset$depth_deep <- terra::extract(glorys_max_dep, obis_dataset[,1:2], ID = F)[,1]
+        obis_dataset$depth_deep <- depths$depth[obis_dataset$depth_deep]
+        
+        mid_dep <- glorys_max_dep
+        mid_dep[!is.na(mid_dep)] <- 0
+        mid_dep <- c(mid_dep, glorys_max_dep)
+        mid_dep <- floor(median(mid_dep))
+        
+        obis_dataset$depth_mid <- terra::extract(mid_dep, obis_dataset[,1:2], ID = F)[,1]
+        obis_dataset$depth_mid <- depths$depth[obis_dataset$depth_mid]
+        
+        obis_dataset <- obis_dataset %>%
+          mutate(to_remove_ddeep = ifelse(is.na(depth_deep), TRUE, FALSE),
+                 to_remove_dmid = ifelse(is.na(depth_mid), TRUE, FALSE),
+                 depth_deep = ifelse(is.na(depth_deep), 0, depth_deep),
+                 depth_mid = ifelse(is.na(depth_mid), 0, depth_mid))
+        
+        to_remove <- obis_dataset %>%
+          select(starts_with("to_remove"))
+        
+        obis_dataset <- obis_dataset %>%
+          select(!starts_with("to_remove"))
+          
+        success <- try(download_temp("glorys", dataset, obis_dataset, sel_month, sel_year))
         
         if (!inherits(success, "try-error")) {
           
           layer <- load_layers(outfolder, success)
+          plot(e, col = "grey70", main = "Glorys");plot(layer[[1]], add = T)
           
-          max_dep <- terra::app(layer, fun = function(x) {
-            if (any(!is.na(x))) {
-              max(which(!is.na(x)))
-            } else {
-              NA
-            }
-          })
+          
           
           # Surface values
           surface_vals <- terra::extract(layer[[1]], obis_sel_month[,coordnames], ID = F)
@@ -348,6 +464,7 @@ for (yr in seq_along(range_year)) {
           fs::file_delete(list.files(outfolder, full.names = T))
 
         }
+        st$set(st_cod, c(st$get(st_cod), "glorys"))
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_glorys"] <- "concluded"
       } else {
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_glorys"] <- "unavailable"
@@ -366,6 +483,7 @@ for (yr in seq_along(range_year)) {
           cat("Proccessing CoralTemp\n")
           
           layer <- load_layers(outfolder, success)
+          plot(e, col = "grey70", main = "CT");plot(layer[[1]], add = T)
           
           surface_ct_vals <- terra::extract(layer, obis_sel_month[,coordnames], ID = F)
           
@@ -384,6 +502,7 @@ for (yr in seq_along(range_year)) {
 
         fs::file_delete(list.files(outfolder, full.names = T))
         
+        st$set(st_cod, c(st$get(st_cod), "coraltemp"))
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_coraltemp"] <- "concluded"
       } else {
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_coraltemp"] <- "unavailable"
@@ -403,6 +522,7 @@ for (yr in seq_along(range_year)) {
           cat("Proccessing MUR\n")
           
           layer <- load_layers(outfolder, success)
+          plot(e, col = "grey70", main = "MUR");plot(layer[[1]], add = T)
           
           surface_mt_vals <- terra::extract(layer, obis_sel_month[,coordnames], ID = F)
           
@@ -421,6 +541,7 @@ for (yr in seq_along(range_year)) {
 
         fs::file_delete(list.files(outfolder, full.names = T))
         
+        st$set(st_cod, c(st$get(st_cod), "mur"))
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_mur"] <- "concluded"
       } else {
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_mur"] <- "unavailable"
@@ -440,6 +561,7 @@ for (yr in seq_along(range_year)) {
           cat("Proccessing OSTIA\n")
           
           layer <- load_layers(outfolder, success)
+          plot(e, col = "grey70", main = "OSTIA");plot(layer[[1]], add = T)
           
           surface_os_vals <- terra::extract(layer, obis_sel_month[,coordnames], ID = F)
           
@@ -458,6 +580,7 @@ for (yr in seq_along(range_year)) {
 
         fs::file_delete(list.files(outfolder, full.names = T))
         
+        st$set(st_cod, c(st$get(st_cod), "ostia"))
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_ostia"] <- "concluded"
       } else {
         log_df[log_df$year == sel_year & log_df$month == sel_month, "status_ostia"] <- "unavailable"
@@ -468,9 +591,10 @@ for (yr in seq_along(range_year)) {
         select(-temp_ID, -workID, -flagDate)
       
       have_data <- apply(all_vals %>%
-                           select(surfaceTemperature, medianTemperature, bottomTemperature,
+                           select(surfaceTemperature, midTemperature, deepTemperature,
+                                  bottomTemperature,
                                   minimumDepthTemperature, maximumDepthTemperature,
-                                  coraltempSST, murSST),
+                                  coraltempSST, murSST, ostiaSST),
                          1, function(x) any(!is.na(x)))
       
       all_vals <- all_vals[have_data,]
@@ -483,10 +607,15 @@ for (yr in seq_along(range_year)) {
       d_files <- d_files[grepl(paste0(sel_year, "_", sel_month), d_files)]
       fs::file_delete(d_files)
       
+      st$set(st_cod, c(st$get(st_cod), "done"))
       log_df[log_df$year == sel_year & log_df$month == sel_month, "status_general"] <- "concluded"
       
     } else {
-      log_df[log_df$year == sel_year & log_df$month == sel_month, "status_general"] <- "skipped"
+      if (st$exists(st_cod)) {
+        log_df[log_df$year == sel_year & log_df$month == sel_month, "status_general"] <- "already_done"
+      } else {
+        log_df[log_df$year == sel_year & log_df$month == sel_month, "status_general"] <- "skipped"
+      }
     }
   }
 }

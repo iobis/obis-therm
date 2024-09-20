@@ -18,7 +18,8 @@ req_packages <- c(
   "rerddap",
   "ncdf4",
   "fs",
-  "httr"
+  "httr",
+  "storr"
 )
 
 # Create a function to check if is installed
