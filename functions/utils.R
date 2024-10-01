@@ -9,3 +9,9 @@ get_obis <- function() {
     }
     return(f)
 }
+
+check_depth_diff <- function(depth_original, depth_new, limit = 5) {
+    diff_depth <- abs(depth_original - depth_new)
+    diff_depth <- ifelse(diff_depth > limit, TRUE, FALSE)
+    ifelse(is.na(diff_depth), FALSE, diff_depth)
+}

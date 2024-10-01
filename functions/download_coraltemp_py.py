@@ -1,17 +1,4 @@
-def sort_dimension(dataset, dim_name):
-    """
-    Get the values for the specified dimension and verify if they are unsorted. If so, the function sorts them.
-
-    Source: https://help.marine.copernicus.eu/en/articles/7970637-how-to-download-data-for-multiple-points-from-a-csv
-    """
-    # Get the coordinate values for the specified dimension.
-    coordinates = dataset[dim_name].values
-
-    # Check if the coordinates are unsorted.
-    if (coordinates[0] >= coordinates[:-1]).all():
-        dataset = dataset.sortby(dim_name, ascending=True)
-        
-    return dataset
+from functions.sort_dimension import sort_dimension
 
 def download_coraltemp_py(dataset, target_data, sel_date):
     """
@@ -33,20 +20,28 @@ def download_coraltemp_py(dataset, target_data, sel_date):
     import xarray as xr
     import pandas as pd
 
-    dataset = sort_dimension(dataset, 'latitude')
-    dataset = sort_dimension(dataset, 'longitude')
+    coord_names = list(dataset.coords)
 
-    results = []
+    lat_var = [coord for coord in coord_names if coord.startswith('lat')][0]
+    lon_var = [coord for coord in coord_names if coord.startswith('lon')][0]
 
+    dataset = sort_dimension(dataset, lat_var)
+    dataset = sort_dimension(dataset, lon_var)
+    
     target_date = pd.to_datetime(sel_date)
+    
+    ds = dataset['sea_surface_temperature'].sel(
+        time=target_date, method='nearest'
+    )
+
+    results = []    
 
     # Iterate over each row in the DataFrame
     for i, row in target_data.iterrows():
         
-        selected_data = dataset['sea_surface_temperature'].sel(
-            longitude=row['decimalLongitude'], 
-            latitude=row['decimalLatitude'],
-            time=target_date,
+        selected_data = ds.sel(
+            **{lon_var: row['decimalLongitude'], 
+               lat_var: row['decimalLatitude']},
             method='nearest'
         )
 

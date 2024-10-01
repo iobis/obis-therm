@@ -1,17 +1,4 @@
-def sort_dimension(dataset, dim_name):
-    """
-    Get the values for the specified dimension and verify if they are unsorted. If so, the function sorts them.
-
-    Source: https://help.marine.copernicus.eu/en/articles/7970637-how-to-download-data-for-multiple-points-from-a-csv
-    """
-    # Get the coordinate values for the specified dimension.
-    coordinates = dataset[dim_name].values
-
-    # Check if the coordinates are unsorted.
-    if (coordinates[0] >= coordinates[:-1]).all():
-        dataset = dataset.sortby(dim_name, ascending=True)
-        
-    return dataset
+from functions.sort_dimension import sort_dimension
 
 def download_glorys_py(dataset, target_data, sel_date):
     """
@@ -67,6 +54,8 @@ def download_glorys_py(dataset, target_data, sel_date):
                 'temp_ID': int(row['temp_ID']),
                 #'decimalLongitude': row['decimalLongitude'],
                 #'decimalLatitude': row['decimalLatitude'],
+                'actual_lon': selected_data['longitude'].item(),
+                'actual_lat': selected_data['latitude'].item(),
                 'requested_depth': depth,
                 'actual_depth': actual_depth,
                 'depth_type': depth_col,

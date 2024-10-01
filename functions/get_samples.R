@@ -13,9 +13,6 @@ get_samples <- function(.usr, .pwd) {
             no_directories = T,
             force_download = T
         )
-        glorys_sample <- glorys_sample$sel(time = "2021-06-01", method = "nearest")
-        glorys_sample$to_netcdf("samples/glorys.nc")
-        rm(glorys_sample)
         glorys_sample <- rast(as.character(outf[[1]]))
         glorys_sample <- subset(glorys_sample, startsWith(names(glorys_sample), "thetao"))
         origin(glorys_sample)[1] <- 0

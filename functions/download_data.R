@@ -38,7 +38,10 @@ download_temp <- function(temp_source,
   reticulate::source_python("functions/download_mur_py.py")
   reticulate::source_python("functions/download_ostia_py.py")
 
-  ds <- switch(
+  if (inherits(dataset, "xarray.core.dataset.Dataset")) {
+    ds <- dataset
+  } else {
+    ds <- switch(
     temp_source,
     glorys = cm$open_dataset(
       dataset_id = dataset,
@@ -51,6 +54,7 @@ download_temp <- function(temp_source,
       username = .user,
       password = .pwd)
   )
+  }
 
   sel_date <- paste0(sel_year, "-", sprintf("%02d", sel_month), "-01")
   

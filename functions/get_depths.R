@@ -31,7 +31,7 @@ get_depths <- function(dataset, target_data, sel_date) {
 
         dataset_depths[[i]] <- data.frame(
             temp_ID = target_data$temp_ID[i],
-            max_depth = max_depth, mid_dep = mid_dep
+            depth_deep = max_depth, depth_mid = mid_dep
         )
     }
 

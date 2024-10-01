@@ -58,3 +58,5 @@ aggregated/
 samples/
 
 *_storr
+
+__pycache__
