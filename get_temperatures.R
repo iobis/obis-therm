@@ -54,7 +54,7 @@ filename <- "var=thetao"
 coordnames <- c("decimalLongitude", "decimalLatitude")
 
 # Define range of dates to get information
-range_year <- 2023
+range_year <- 1986:lubridate::year(Sys.Date())
 range_month <- 1:12
 
 # Define ranges that are available per product
@@ -143,6 +143,11 @@ for (yr in seq_along(range_year)) {
 
       st$set(st_cod, "started")
 
+      obis_dataset <- obis_sel_month %>%
+          select(decimalLongitude, decimalLatitude, temp_ID,
+            depth_min = minimumDepthInMeters, depth_max = maximumDepthInMeters
+          )
+
       # GLORYS PRODUCT ------
       if (sel_year %in% glorys_range) {
         cat("Downloading GLORYS\n")
@@ -163,10 +168,7 @@ for (yr in seq_along(range_year)) {
         )
         outf_temp_glorys <- as.character(outf_temp_glorys[[1]])
 
-        obis_dataset <- obis_sel_month %>%
-          select(decimalLongitude, decimalLatitude, temp_ID,
-            depth_min = minimumDepthInMeters, depth_max = maximumDepthInMeters
-          ) %>%
+        obis_dataset <- obis_dataset %>%
           mutate(
             to_remove_dmin = ifelse(is.na(depth_min), TRUE, FALSE),
             to_remove_dmax = ifelse(is.na(depth_max), TRUE, FALSE),
