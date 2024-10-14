@@ -55,3 +55,9 @@ drafts/
 results/
 temp/
 aggregated/
+samples/
+logs/
+
+*_storr
+
+__pycache__
