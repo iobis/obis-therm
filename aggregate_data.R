@@ -50,7 +50,9 @@ aggregate_data <- function(input_folder, output_folder,
            
            tf_sf <- sf::st_as_sf(tf_content, 
                                  coords = c("decimalLongitude", "decimalLatitude"),
-                                 crs = 4326)
+                                 crs = 4326,
+                                 remove = FALSE
+                                 )
            
            for (hr in h3_resolutions) {
              tf_sf[[paste0("h3_", hr)]] <- h3jsr::point_to_cell(tf_sf, res = hr)

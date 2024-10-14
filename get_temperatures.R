@@ -33,14 +33,15 @@ source("functions/dates.R")
 source("functions/download_data.R")
 source("functions/utils.R")
 source("functions/get_depths.R")
+source("functions/data_load.R")
 
 # Settings ----
 if (Sys.getenv("COPERNICUS_USER") != "") {
   .user <- Sys.getenv("COPERNICUS_USER")
   .pwd <- Sys.getenv("COPERNICUS_PWD")
 } else {
-  .user <- rstudioapi::askForPassword("Enter your user")
-  .pwd <- rstudioapi::askForPassword("Enter your password")
+  .user <- readline("Enter your user\n")
+  .pwd <- readline("Enter your password\n")
 }
 options(timeout = 999999999)
 
@@ -78,9 +79,6 @@ ds_sample <- cm$open_dataset(
   maximum_latitude = 10
 )
 
-# Print loaded dataset information
-print(ds_sample)
-
 # Get available depths and maximum date of first dataset
 depths <- ds_sample$depth$to_dataframe()
 glorys1_max_date <- max(ds_sample$time$to_dataframe()[, 1])
@@ -95,9 +93,9 @@ obis_filt <- obis_ds %>%
     id, dataset_id, occurrenceID, datasetID,
     minimumDepthInMeters, maximumDepthInMeters,
     decimalLongitude, decimalLatitude,
-    eventDate, date_start, date_mid, date_end
+    eventDate, date_start, date_mid, date_end, date_year
   ) %>%
-  filter(!is.na(eventDate))
+  filter(!is.na(date_year))
 
 log_df <- data.frame(
   year = rep(range_year, each = 12),
@@ -115,40 +113,14 @@ for (yr in seq_along(range_year)) {
   cat("Downloading data for year", sel_year, "\n")
 
   # Load data for a specific year and month
-  eval(parse(text = paste0(
-    "obis_sel <- obis_filt %>%
-        filter(grepl('", sel_year, "', eventDate)) %>%
-        collect()"
-  )))
-
-  if (nrow(obis_sel) > 0) {
-    obis_sel <- obis_sel %>%
-      mutate(
-        extractedDateStart = get_date(date_start),
-        extractedDateMid = get_date(date_mid),
-        extractedDateEnd = get_date(date_end)
-      ) %>%
-      filter(!is.na(extractedDateMid)) %>%
-      mutate(
-        extractedDateYear = lubridate::year(extractedDateMid),
-        extractedDateMonth = lubridate::month(extractedDateMid)
-      ) %>%
-      mutate(flagDate = check_date(extractedDateStart, extractedDateEnd))
-  }
+  obis_sel <- load_data_year(sel_year, obis_filt)
 
   for (mo in seq_along(range_month)) {
     sel_month <- range_month[mo]
     st_cod <- paste0(sel_year, sel_month)
     cat("Proccessing month", sel_month, "\n")
 
-    if (nrow(obis_sel) > 0) {
-      obis_sel_month <- obis_sel %>%
-        filter(extractedDateYear == sel_year) %>%
-        filter(extractedDateMonth == sel_month) %>%
-        mutate(temp_ID = seq_len(nrow(.)))
-    } else {
-      obis_sel_month <- obis_sel
-    }
+    obis_sel_month <- filter_data_month(obis_sel, sel_month)
 
     if (nrow(obis_sel_month) > 0 && !st$exists(st_cod)) {
       all_vals <- data.frame(
@@ -173,6 +145,7 @@ for (yr in seq_along(range_year)) {
 
       # GLORYS PRODUCT ------
       if (sel_year %in% glorys_range) {
+        cat("Downloading GLORYS\n")
         if (as.Date(paste0(sel_year, "-", sprintf("%02d", sel_month), "-01")) <= glorys1_max_date) {
           dataset <- "cmems_mod_glo_phy_my_0.083deg_P1M-m"
         } else {
@@ -218,7 +191,7 @@ for (yr in seq_along(range_year)) {
           obis_dataset$to_remove_nacord[coords_na[na_to_rm]] <- TRUE
           obis_dataset$to_remove_naaprox[coords_na[na_approx]] <- TRUE
         }
-        
+
         ds_temp_glorys <- xr$open_dataset(outf_temp_glorys)
         valid_depths <- get_depths(ds_temp_glorys, obis_dataset,
          paste(sel_year, sprintf("%02d", sel_month), "01", sep = "-"))
@@ -228,7 +201,7 @@ for (yr in seq_along(range_year)) {
                  to_remove_dmid = ifelse(is.na(depth_mid), TRUE, FALSE)) %>%
           mutate(depth_deep = ifelse(is.na(depth_deep), 0, depth_deep),
                  depth_mid = ifelse(is.na(depth_mid), 0, depth_mid))
-        
+
         obis_dataset <- left_join(obis_dataset, valid_depths)
 
         to_remove <- obis_dataset %>%
@@ -293,8 +266,8 @@ for (yr in seq_along(range_year)) {
           depth_diff_min <- check_depth_diff(obis_dataset$depth_min, all_vals$minimumDepthClosestDepth)
           depth_diff_max <- check_depth_diff(obis_dataset$depth_max, all_vals$maximumDepthClosestDepth)
 
-          all_vals$flag[depth_diff_min] <- all_vals$flag[depth_diff] + 4
-          all_vals$flag[depth_diff_max] <- all_vals$flag[depth_diff] + 8
+          all_vals$flag[depth_diff_min] <- all_vals$flag[depth_diff_min] + 4
+          all_vals$flag[depth_diff_max] <- all_vals$flag[depth_diff_max] + 8
 
           fs::file_delete(outf_temp_glorys)
 
@@ -496,7 +469,7 @@ for (yr in seq_along(range_year)) {
 
 
       all_vals <- left_join(obis_sel_month, all_vals, by = "temp_ID") %>%
-        select(-temp_ID, -workID, -flagDate)
+        select(-temp_ID, -flagDate)
 
       have_data <- apply(
         all_vals %>%
@@ -512,7 +485,7 @@ for (yr in seq_along(range_year)) {
       all_vals <- all_vals[have_data, ]
 
       if (nrow(all_vals) > 0) {
-        write_parquet(all_vals, paste0(outfolder_final, "/", product, "_", sel_year, "_", sel_month, ".parquet"))
+        write_parquet(all_vals, paste0(outfolder_final, "/", filename, "_year=", sel_year, "_month=", sel_month, ".parquet"))
       }
 
       d_files <- list.files(outfolder, full.names = T)
