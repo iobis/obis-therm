@@ -73,7 +73,6 @@ get_nearby <- function(netcdf, variable, coordinates, mode = "queen",
         ds <- ds$isel(time = 0L)
     } else {
         ds <- ds$sel(time = date, method = "nearest")
-        print(ds)
     }
     if (!is.null(depth)) {
         ds <- ds$isel(depth = depth)
