@@ -202,7 +202,8 @@ for (yr in seq_along(range_year)) {
           mutate(to_remove_ddeep = ifelse(is.na(depth_deep), TRUE, FALSE),
                  to_remove_dmid = ifelse(is.na(depth_mid), TRUE, FALSE)) %>%
           mutate(depth_deep = ifelse(is.na(depth_deep), 0, depth_deep),
-                 depth_mid = ifelse(is.na(depth_mid), 0, depth_mid))
+                 depth_mid = ifelse(is.na(depth_mid), 0, depth_mid)) %>%
+          rename(temp_ID = id)
 
         obis_dataset <- left_join(obis_dataset, valid_depths)
 

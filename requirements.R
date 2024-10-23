@@ -19,7 +19,8 @@ req_packages <- c(
   "ncdf4",
   "fs",
   "httr",
-  "storr"
+  "storr",
+  "progress"
 )
 
 # Create a function to check if is installed
