@@ -180,6 +180,7 @@ for (yr in seq_along(range_year)) {
           )
 
         # See which are NA
+        cat("Processing GLORYS\n")
         coords_na <- extract_from_nc(outf_temp_glorys, "thetao", obis_dataset[, 1:2], depth = 0L)
         coords_na <- which(is.na(coords_na[, "value"]))
 
@@ -306,13 +307,14 @@ for (yr in seq_along(range_year)) {
         }
 
         if (proceed) {
+          cat("Extracting CoralTemp\n")
           success <- try(download_temp("coraltemp", coraltemp_ds, obis_dataset, sel_month, sel_year))
         } else {
           success <- try(stop("error"), silent = T)
         }
 
         if (!inherits(success, "try-error")) {
-          cat("Proccessing CoralTemp\n")
+          cat("Processing CoralTemp\n")
 
           success$value[is.nan(success$value)] <- NA
 
@@ -374,13 +376,14 @@ for (yr in seq_along(range_year)) {
         }
 
         if (proceed) {
+          cat("Extracting MUR\n")
           success <- try(download_temp("mur", mur_ds, obis_dataset, sel_month, sel_year))
         } else {
           success <- try(stop("error"), silent = T)
         }
 
         if (!inherits(success, "try-error")) {
-          cat("Proccessing MUR\n")
+          cat("Processing MUR\n")
 
           success$value[is.nan(success$value)] <- NA
 
@@ -428,6 +431,7 @@ for (yr in seq_along(range_year)) {
           )
 
         if (!inherits(df, "try-error")) {
+          cat("Extracting OSTIA\n")
           df_ds <- xr$open_mfdataset(unlist(lapply(df, as.character), recursive = T))
           df_ds <- df_ds$analysed_sst
           df_ds <- df_ds$mean(dim = "time", skipna = T)
@@ -442,7 +446,7 @@ for (yr in seq_along(range_year)) {
         }
 
         if (!inherits(success, "try-error")) {
-          cat("Proccessing OSTIA\n")
+          cat("Processing OSTIA\n")
 
           success$value[is.nan(success$value)] <- NA
 
