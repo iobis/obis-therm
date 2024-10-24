@@ -28,35 +28,23 @@ def download_mur_py(dataset, target_data, sel_date):
     dataset = sort_dimension(dataset, lat_var)
     dataset = sort_dimension(dataset, lon_var)
 
-    results = []
-
     target_date = pd.to_datetime(sel_date)
 
-    # Iterate over each row in the DataFrame
-    for i, row in target_data.iterrows():
-        
-        selected_data = dataset['sst'].sel(
-            **{lon_var: row['decimalLongitude'], 
-               lat_var: row['decimalLatitude'],
+    lats = xr.DataArray(target_data['decimalLatitude'], dims = "z")
+    lons = xr.DataArray(target_data['decimalLongitude'], dims = "z")
+
+    selected_data = dataset['sst'].sel(
+            **{lon_var: lons, 
+               lat_var: lats,
                'time': target_date},
             method='nearest'
         )
 
-        actual_time = pd.to_datetime(selected_data['time'].item())
-        sst_value = selected_data.item()
+    result_df = selected_data.to_dataframe()
 
-        # Append the results
-        results.append({
-            'temp_ID': int(row['temp_ID']),
-            #'decimalLongitude': row['decimalLongitude'],
-            #'decimalLatitude': row['decimalLatitude'],
-            #'actual_lon': selected_data[lon_var].item(),
-            #'actual_lat': selected_data[lat_var].item(),
-            'requested_date': target_date,
-            'actual_date': actual_time,
-            'value': sst_value
-        })
-
-    result_df = pd.DataFrame(results)
+    result_df.rename(columns={'time': 'actual_date', 'sst': 'value'}, inplace=True)
+    result_df['requested_date'] = target_date
+    result_df['temp_ID'] = target_data['temp_ID']
+    result_df = result_df[['temp_ID', 'requested_date', 'actual_date', 'value']]
 
     return result_df

@@ -29,35 +29,22 @@ def download_coraltemp_py(dataset, target_data, sel_date):
     dataset = sort_dimension(dataset, lon_var)
     
     target_date = pd.to_datetime(sel_date)
-    
-    ds = dataset['sea_surface_temperature'].sel(
-        time=target_date, method='nearest'
-    )
 
-    results = []    
+    lats = xr.DataArray(target_data['decimalLatitude'], dims = "z")
+    lons = xr.DataArray(target_data['decimalLongitude'], dims = "z")
 
-    # Iterate over each row in the DataFrame
-    for i, row in target_data.iterrows():
-        
-        selected_data = ds.sel(
-            **{lon_var: row['decimalLongitude'], 
-               lat_var: row['decimalLatitude']},
+    selected_data = dataset['sea_surface_temperature'].sel(
+            **{lon_var: lons, 
+               lat_var: lats,
+               'time': target_date},
             method='nearest'
         )
 
-        actual_time = pd.to_datetime(selected_data['time'].item())
-        sst_value = selected_data.item()
+    result_df = selected_data.to_dataframe()
 
-        # Append the results
-        results.append({
-            'temp_ID': int(row['temp_ID']),
-            #'decimalLongitude': row['decimalLongitude'],
-            #'decimalLatitude': row['decimalLatitude'],
-            'requested_date': target_date,
-            'actual_date': actual_time,
-            'value': sst_value,
-        })
-
-    result_df = pd.DataFrame(results)
+    result_df.rename(columns={'time': 'actual_date', 'sea_surface_temperature': 'value'}, inplace=True)
+    result_df['requested_date'] = target_date
+    result_df['temp_ID'] = target_data['temp_ID']
+    result_df = result_df[['temp_ID', 'requested_date', 'actual_date', 'value']]
 
     return result_df
