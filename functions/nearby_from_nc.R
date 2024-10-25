@@ -20,6 +20,11 @@ extract_from_nc <- function(netcdf, variable, coordinates, depth = NULL) {
     lons <- coordinates$decimalLongitude
     lats <- coordinates$decimalLatitude
 
+    if (length(lons) < 2) {
+        lons <- list(lons)
+        lats <- list(lats)
+    }
+
     lats <- xr$DataArray(lats, dims = "z")
     lons <- xr$DataArray(lons, dims = "z")
 
