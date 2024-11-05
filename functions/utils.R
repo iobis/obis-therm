@@ -1,5 +1,5 @@
 get_obis <- function() {
-    f <- list.files("data", pattern = "obis_")
+    f <- list.files("data", pattern = "obis_", full.names = T)
     if (length(f) < 1) {
         cat("Downloading full export...")
         api_call <- httr::content(httr::GET("https://api.obis.org/export?complete=true"), as = "parsed")

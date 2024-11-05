@@ -134,6 +134,7 @@ get_nearby <- function(netcdf, variable, coordinates, mode = "queen",
         extra_coords[[id]] <- vals_grid
     }
 
+    if (verbose) cat("Processing adjacent points...\n")
     extra_coords <- do.call("rbind", extra_coords)
 
     x_ids <- xr$DataArray(as.integer(extra_coords$x - 1), dims = "z")

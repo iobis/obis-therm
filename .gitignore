@@ -57,6 +57,7 @@ temp/
 aggregated/
 samples/
 logs/
+data/
 
 *_storr
 

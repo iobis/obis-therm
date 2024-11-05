@@ -56,6 +56,8 @@ download_temp <- function(temp_source,
   )
   }
 
+  ds <- ds$chunk("auto")
+
   sel_date <- paste0(sel_year, "-", sprintf("%02d", sel_month), "-01")
   
   arguments <- list(

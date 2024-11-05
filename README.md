@@ -90,7 +90,10 @@ head(acanthuridae)
 More details soon.
 
 
+## Updates
+
+- The code now uses `Dask` integration with `xarray` for parallel processing.
+
 ## Next steps
 
-- Parallelized code: the code is running single threaded for now. Because it calls `reticulate` functions, parallelizing the code is not so straightforward. One alternative would be to only parallelize the internal code in Python.
 - Convert all main code to Python, and just do post-processing on R: that would be ideal, so we can use for example Dask for parallel processing.
