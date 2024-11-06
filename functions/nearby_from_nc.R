@@ -84,12 +84,17 @@ get_nearby <- function(netcdf, variable, coordinates, mode = "queen",
     lim_y <- range(seq_along(layer_y))
 
     coordinates_idx <- coordinates
-    # coordinates_idx$value <- NA
-    # coordinates_idx$new_lon <- NA
-    # coordinates_idx$new_lat <- NA
 
-    lats <- xr$DataArray(coordinates$decimalLatitude, dims = "z")
-    lons <- xr$DataArray(coordinates$decimalLongitude, dims = "z")
+    lons <- coordinates$decimalLongitude
+    lats <- coordinates$decimalLatitude
+
+    if (length(lons) < 2) {
+        lons <- list(lons)
+        lats <- list(lats)
+    }
+
+    lons <- xr$DataArray(lons, dims = "z")
+    lats <- xr$DataArray(lats, dims = "z")
 
     if (any(grepl("latitude", nams_coords))) {
         temp_res <- ds$sel(latitude = lats, longitude = lons, method = "nearest")

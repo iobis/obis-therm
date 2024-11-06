@@ -45,6 +45,9 @@ if (Sys.getenv("COPERNICUS_USER") != "") {
 }
 options(timeout = 999999999)
 
+# Start Dask for parallel processing
+start_dask(browse = TRUE)
+
 st <- storr_rds("control_storr")
 outfolder <- "temp"
 outfolder_final <- "results"
@@ -195,7 +198,7 @@ for (yr in seq_along(range_year)) {
           obis_dataset$to_remove_naaprox[coords_na[na_approx]] <- TRUE
         }
 
-        ds_temp_glorys <- xr$open_dataset(outf_temp_glorys)
+        ds_temp_glorys <- xr$open_dataset(outf_temp_glorys, chunks = "auto")
         valid_depths <- get_depths(ds_temp_glorys, obis_dataset,
          paste(sel_year, sprintf("%02d", sel_month), "01", sep = "-"))
 
@@ -203,10 +206,9 @@ for (yr in seq_along(range_year)) {
           mutate(to_remove_ddeep = ifelse(is.na(depth_deep), TRUE, FALSE),
                  to_remove_dmid = ifelse(is.na(depth_mid), TRUE, FALSE)) %>%
           mutate(depth_deep = ifelse(is.na(depth_deep), 0, depth_deep),
-                 depth_mid = ifelse(is.na(depth_mid), 0, depth_mid)) %>%
-          rename(temp_ID = id)
+                 depth_mid = ifelse(is.na(depth_mid), 0, depth_mid))
 
-        obis_dataset <- left_join(obis_dataset, valid_depths)
+        obis_dataset <- left_join(obis_dataset, valid_depths, by = "temp_ID")
 
         to_remove <- obis_dataset %>%
           select(starts_with("to_remove"))
@@ -222,9 +224,9 @@ for (yr in seq_along(range_year)) {
             pivot_wider(names_from = depth_type, values_from = value)
 
           glorys_data_depths <- success %>%
-            select(temp_ID, depth_type, actual_depth) %>%
+            select(temp_ID, depth_type, depth) %>%
             mutate(depth_type = paste0(depth_type, "_depth")) %>%
-            pivot_wider(names_from = depth_type, values_from = actual_depth)
+            pivot_wider(names_from = depth_type, values_from = depth)
 
           rm(success)
 
