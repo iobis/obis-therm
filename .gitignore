@@ -62,3 +62,5 @@ data/
 *_storr
 
 __pycache__
+
+_upload.R
