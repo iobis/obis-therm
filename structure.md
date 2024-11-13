@@ -48,6 +48,7 @@ The `geometry` column is a binary geometry format (see more about the GeoParquet
 * `surfaceTemperature`: this is the GLORYS surface temperature
 * `midTemperature`: this is the GLORYS temperature for the mid depth (that is, the mid point between the maximum depth with valid values and the surface depth)
 * `deepTemperature`: this is the GLORYS temperature for the maximum depth with valid values
+* `bottomTemperature`: this is the GLORYS temperature for the bottom (i.e. the 'Sea water potential temperature at sea floor' variable
 
 For both `midTemperature` and `deepTemperature` you should look at `midDepth` and `deepDepth` to see which is the depth used.
 
