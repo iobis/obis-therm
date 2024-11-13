@@ -12,11 +12,14 @@ aggregate_data <- function(input_folder, output_folder,
                            h3_resolutions = c(7)) {
   
   file_schema <- schema(read_parquet(list.files(input_folder, full.names = T)[1]))
+  file_schema$minimumDepthInMeters <- double()
+  file_schema$maximumDepthInMeters <- double()
   file_schema$surfaceTemperature <- double()
-  file_schema$medianTemperature <- double()
+  file_schema$midTemperature <- double()
+  file_schema$deepTemperature <- double()
   file_schema$bottomTemperature <- double()
-  file_schema$medianDepth <- double()
-  file_schema$bottomDepth <- double()
+  file_schema$midDepth <- double()
+  file_schema$deepDepth <- double()
   file_schema$minimumDepthTemperature <- double()
   file_schema$maximumDepthTemperature <- double()
   file_schema$minimumDepthClosestDepth <- double()
@@ -36,7 +39,8 @@ aggregate_data <- function(input_folder, output_folder,
            year = as.integer(year), 
            month = as.integer(month),
            surfaceTemperature = round(surfaceTemperature, 2),
-           medianTemperature = round(medianTemperature, 2),
+           midTemperature = round(midTemperature, 2),
+           deepTemperature = round(deepTemperature, 2),
            bottomTemperature = round(bottomTemperature, 2),
            minimumDepthTemperature = round(minimumDepthTemperature, 2),
            maximumDepthTemperature = round(maximumDepthTemperature, 2),
