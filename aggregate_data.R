@@ -29,7 +29,7 @@ aggregate_data <- function(input_folder, output_folder,
                      schema = file_schema)
   
   ds %>%
-    select(-date_start, -date_end,
+    select(-date_start, -date_end, -date_year,
            -extractedDateStart, -extractedDateMid, -extractedDateEnd) %>%
     rename(year = extractedDateYear, month = extractedDateMonth) %>%
     mutate(flag = as.integer(flag), 

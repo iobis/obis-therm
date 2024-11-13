@@ -1,6 +1,8 @@
 # OBIS - monthly temperature dataset
 
-This repository contains the code used to generate the **obistemp** dataset, which includes OBIS occurrence data matched with multiple sources of monthly temperature. Temperature data is extracted for each occurrence based on the date it was collected, at the recorded depth or across multiple depths. See how to download it [here](https://github.com/iobis/obis-therm#accessing-the-dataset) and how to use it [here](https://github.com/iobis/obis-therm#using-the-data).
+This repository contains the code used to generate the **obistherm** dataset, which includes OBIS occurrence data matched with multiple sources of monthly temperature. Temperature data is extracted for each occurrence based on the date it was collected, at the recorded depth or across multiple depths. See how to download it [here](https://github.com/iobis/obis-therm#accessing-the-dataset) and how to use it [here](https://github.com/iobis/obis-therm#using-the-data).
+
+You can understand the dataset structure [here](https://github.com/iobis/obis-therm/blob/main/structure.md). The current version of **obistherm** is based on the [OBIS full export](https://obis.org/data/access/) of 2024-07-23.
 
 ## Temperature sources
 
@@ -13,9 +15,9 @@ At this moment, the dataset include temperature information from four sources:
 
 ## Codes
 
-The production of this dataset is simple and depends on a single code: `get_temperatures.R` (and associated functions). Ensure that all requirements are met (see `requirements.R`).
+The production of this dataset is simple and depends on a single code: `get_temperatures.R` (and associated functions). An overview of the production steps is available [here](https://github.com/iobis/obis-therm/blob/main/pseudocode.md). Before starting, ensure that all requirements are met (see `requirements.R`).
 
-Once the data is downloaded, the separate `parquet` files are aggregated and the H3 index is added. This is done through the `aggregate_files.R`
+Once the data is downloaded, the separate `parquet` files are aggregated, the H3 index is added, and the file is converted to GeoParquet. This is done through the `aggregate_files.R`
 
 For downloading data from Copernicus you will need a valid account (you can create one for free [here](https://data.marine.copernicus.eu/register)). You should then store your credentials on the environment using the following:
 
@@ -162,6 +164,8 @@ NOTE: on all examples, we use a local copy stored in a folder called "aggregated
 Temperature data for two fiddler crab species (family Ocypodidae):
 
 ``` r
+library(ggplot2)
+
 ocy <- retrieve_data(scientificname = c(
     "Leptuca thayeri", "Minuca rapax"
 ), datasource = "aggregated/") # Change here with your data source or NULL
@@ -192,7 +196,7 @@ ggplot(ocy_proc) +
 ![](images/fiddlers.png)
 
 
-Spatial plots can be done vary easy, as the dataset is in GeoParquet format.
+Spatial plots can be done very easily, as the dataset is in GeoParquet format.
 
 ``` r
 library(arrow)
