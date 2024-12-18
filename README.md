@@ -339,6 +339,10 @@ Map(point_layer)
 
 ![](images/lonboard_py.png)
 
+## Notebooks
+
+Check out other examples of use in our [notebooks](https://github.com/iobis/obis-therm/tree/main/notebooks).
+
 ## Updates
 
 - The code now uses `Dask` integration with `xarray` for parallel processing.
