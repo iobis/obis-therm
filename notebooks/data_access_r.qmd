@@ -1,0 +1,183 @@
+---
+title: "Accessing the OBIS thermal dataset from R"
+format: html
+---
+
+## Accessing the dataset
+
+### Download a local copy
+
+The final dataset is available through the OBIS AWS S3 bucket `s3://obis-products/obistherm`. If you have the **AWS** CLI program installed in your computer, you can run the following in the command line:
+
+``` bash
+aws s3 cp --recursive s3://obis-products/obistherm . --no-sign-request
+```
+What will download all files to your local folder. Alternatively, on R you can use the `aws.s3` package:
+
+``` {r}
+#| eval: false
+library(aws.s3)
+
+local_folder <- "obistherm"
+fs::dir_create(local_folder)
+
+bucket <- "obis-products"
+s3_folder <- "obistherm"
+s3_objects <- get_bucket(bucket = bucket, prefix = s3_folder, use_https = TRUE, max = Inf)
+
+i <- 0
+total <- length(s3_objects)
+for (obj in s3_objects) {
+    i <- i + 1
+    cat("Downloading", i, "out of", total, "\n")
+    s3_key <- obj$Key
+    local_file <- file.path(local_folder, s3_key)
+
+    if (!endsWith(s3_key, "/")) {
+        save_object(
+            object = s3_key,
+            bucket = bucket,
+            file = local_file,
+            region = "",
+            use_https = TRUE 
+        )
+        message(paste("Downloaded:", s3_key, "to", local_file))
+    }
+}
+```
+
+Once you have downloaded the data to a local folder, you can then open it using `arrow::open_dataset`
+
+``` {r}
+#| echo: false
+local_folder <- "aggregated"
+```
+
+``` {r}
+library(arrow)
+library(dplyr)
+
+ds <- open_dataset(local_folder)
+```
+
+This does not open the data on memory, what enables you to work with such a big dataset (more than 103 million records) seamlessly on R. The function `open_dataset` will open a representation of the dataset on R, which you can later filter and do other operations using the `dplyr` package. You can learn more about `arrow` [here](https://arrow.apache.org/docs/r/articles/arrow.html) and on this [short tutorial](https://resources.obis.org/tutorials/arrow-obis/).
+
+You can quickly see all columns that are available on the dataset by running this:
+
+``` {r}
+print(ds)
+```
+
+### Accessing through the S3 storage
+
+Downloading a local copy is the best solution to speed up any operation you need to do. However, it is also possible to access the dataset directly from the S3 storage:
+
+``` {r}
+s3_storage <- "s3://obis-products/obistherm/"
+ds_s3 <- open_dataset(s3_storage)
+
+print(ds_s3)
+```
+
+The speed of any operation done with the S3 version will depend on your internet connection and the type of operation. **The dataset is organized by year (note that we use a [hive structure in the files](https://arrow.apache.org/docs/r/articles/dataset.html)), and any operation that filter the data for a single year will be faster, because Arrow will only need to read one file.**
+
+## Filtering and aggregating
+
+Once you opened the dataset, you can quickly generate summaries and filter the data. Let's start by looking at the number of records for the family Ocypodidae across years.
+
+``` {r}
+# We use magrittr pipe symbol %>%, used by dplyr, but you can also use the
+# native symbol |>
+tictoc::tic() # Let's see how quick this is, you can skip this line
+
+ocyp_recs <- ds %>% 
+    filter(family == "Ocypodidae") %>%
+    filter(!is.na(species)) %>%
+    group_by(species, year) %>%
+    count() %>%
+    collect() # Very important!
+
+tictoc::toc() # 0.5 seconds! 
+
+ocyp_recs
+```
+
+Here we added the `tictoc` functions to compute the time of the operation (0.5 seconds!), but you can ignore this part. The important is the central operation:
+
+1. We start by filtering the data. In this case we filter by the family "Ocypodidae"  
+2. We filter to remove those with no "species" name, that would be not at the species rank  
+3. Then we group our data by _species_ and _year_  
+4. We then use `count()` to count the number of records  
+
+**Note the `collect()` on the end of the operation.** This is essential to perform the computation and bring the data to R. Remember that the dataset is a just a representation of the data: things will just be computed once you collect the data. In fact, some operations are not supported by `arrow` and you will first need to colect a portion of the data to proceed.
+
+Let's work with the 4 species with the largest number of records. We did the counts by year, so we will aggregate to get the total. 
+
+``` {r}
+top_ocyp <- ocyp_recs %>%
+    group_by(species) %>%
+    summarise(total = sum(n)) %>%
+    arrange(desc(total)) %>%
+    slice_head(n = 4)
+
+top_ocyp
+```
+
+We will now filter the data for those species to check the temperatures across time.
+
+``` {r}
+top_ocyp_data <- ds %>%
+    filter(species %in% top_ocyp$species) %>%
+    select(species, glorysSST = surfaceTemperature,
+           coraltempSST, murSST, ostiaSST, year, month, decimalLongitude, decimalLatitude) %>%
+    collect()
+
+head(top_ocyp_data)
+
+summary(top_ocyp_data)
+```
+
+Here we use another `dplyr` verb to select only the columns that we are going to use. We also rename the surfaceTemperature column (which is the GLORYS product) to glorysSST.
+
+CoralTemp is the most complete product in this case, so we will focus on it. We can quickly produce a plot of temperature over time for those 4 species.
+
+``` {r}
+top_ocyp_data$date <- lubridate::as_date(paste0(top_ocyp_data$year, "-", top_ocyp_data$month, "-01"))
+
+library(ggplot2)
+
+ggplot(top_ocyp_data, aes(x = date, y = coraltempSST)) +
+    geom_point(aes(color = species)) +
+    facet_wrap(~species) +
+    theme_light()
+```
+
+We can also do a boxplot of the full data for each species. We will also get the .95 quantile, what we can use as an indication of thermal limit.
+
+``` {r}
+limits <- top_ocyp_data %>%
+    group_by(species) %>%
+    summarise(limit = quantile(coraltempSST, .95))
+
+ggplot(top_ocyp_data, aes(x = species, y = coraltempSST)) +
+    geom_boxplot(aes(fill = species)) +
+    geom_hline(data = limits, aes(yintercept = limit, color = species)) +
+    theme_light()
+```
+
+It appears that _Austruca lactea_ has the widest thermal range. Let's plot on a map the records:
+
+``` {r}
+wrld <- rnaturalearth::ne_countries(returnclass = "sf")
+
+top_ocyp_data <- sf::st_as_sf(top_ocyp_data,
+    coords = c("decimalLongitude", "decimalLatitude"), crs = "EPSG:4326")
+
+ggplot() +
+    geom_sf(data = wrld, fill = "grey80", color = "grey80") +
+    geom_sf(data = top_ocyp_data, aes(color = species)) +
+    facet_wrap(~species) +
+    theme_light()
+```
+
+Check the README of the repository for more information about the dataset.

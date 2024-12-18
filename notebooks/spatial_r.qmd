@@ -1,0 +1,103 @@
+---
+title: "Spatial operations - R"
+format: html
+---
+
+## GeoParquet format
+
+The `obistherm` dataset is saved on GeoParquet format. Thus, it contains a geometry column in WKB format. On R, you can directly read the dataset using the package `sfarrow`.
+
+_Note: to see how to download the data, check [this other notebook.](https://github.com/iobis/obis-therm/blob/main/notebooks/data_access_r.qmd)_
+
+``` {r}
+library(arrow)
+library(dplyr)
+library(sfarrow)
+library(sf)
+library(ggplot2)
+sf_use_s2(FALSE)
+
+local_folder <- "aggregated"
+
+ds <- open_dataset(local_folder)
+
+ds_filt <- ds %>% 
+    filter(species == "Leptuca thayeri") %>%
+    select(species, coraltempSST, geometry)
+
+ds_filt_sf <- read_sf_dataset(ds_filt)
+
+ds_filt_sf
+```
+
+Note that, differently from the other operations, this time we haven not called `collect()` at the end of our `dplyr` query. This is because the `sfarrow` function takes the query and then open the result as an `sf` object.
+
+We can do very quick spatial operations with this `sf` object. For example, crop to a certain area and plot.
+
+``` {r}
+ds_cropped <- st_crop(ds_filt_sf, xmin = -70, xmax = -30, ymin = -25, ymax = 29)
+
+ggplot() +
+    geom_sf(data = rnaturalearth::ne_countries(returnclass = "sf"), fill = "gray80", color = "gray80") +
+    geom_sf(data = ds_cropped, aes(color = coraltempSST), size = 4, alpha = .6) +
+    theme_light() +
+    coord_sf(xlim = c(-50, -30), ylim = c(-25, 0))
+```
+
+
+## H3 grid system
+
+The `obistherm` dataset also comes with pre-computed H3 index at resolution 7. The H3 grid system is a hierarchical, hexagon-based spatial indexing system developed by Uber that divides the globe into hexagonal cells at multiple resolutions, allowing for efficient spatial analysis and indexing. It enables seamless geospatial operations like clustering, nearest-neighbor queries, and region aggregation with consistent cell areas and shapes across the globe. You can learn more about it [here](https://h3geo.org/).
+
+You can do filtering and aggregation efficiently using this system. For example, let's consider a certain area in Europe:
+
+``` {r}
+library(h3jsr)
+
+europe_area <- st_as_sfc("POLYGON ((2.548828 53.448807, -0.109863 51.57707, 2.416992 50.764259, 7.646484 53.225768, 2.548828 53.448807))", crs = "EPSG:4326")
+
+europe_h3 <- polygon_to_cells(europe_area, res = 7)[[1]]
+
+data_europe <- ds %>%
+    filter(family == "Soleidae") %>%
+    filter(year >= 2000) %>%
+    filter(h3_7 %in% europe_h3) %>%
+    collect()
+
+head(data_europe)
+```
+
+The first part (selecting the data for a certain region) we could have done using the spatial capabilities of `sf` and `sfarrow`, but H3 will enable us to aggregate the data very easily now.
+
+Let's first go to a coarser resolution, 6, get the average of temperatures in each site and see how much it deviates from the average of all records.
+
+``` {r}
+soleidae_average <- mean(data_europe$deepTemperature, na.rm = T) # GLORYS maximum depth
+
+soleidae_diff <- data_europe %>%
+    # Get parent (coarser) grid
+    mutate(h3_6 = get_parent(h3_7, res = 6)) %>%
+    # Group by those cells
+    group_by(h3_6) %>%
+    # Get the average and diff
+    summarise(deep_dif = mean(deepTemperature, na.rm = T) - soleidae_average)
+
+head(soleidae_diff)   
+```
+
+We can then plot the result. We will convert the H3 codes to a hexagonal grid for better plotting:
+
+``` {r}
+soleidae_diff_g <- cell_to_polygon(soleidae_diff$h3_6, simple = F)
+soleidae_diff_g$difference <- soleidae_diff$deep_dif
+
+basemap <- rnaturalearth::ne_countries(returnclass = "sf")
+basemap <- st_crop(basemap, soleidae_diff_g)
+
+ggplot() +
+    geom_sf(data = basemap) +
+    geom_sf(data = soleidae_diff_g, aes(fill = difference)) +
+    scale_fill_distiller(palette = "PuOr") +
+    theme_light()
+
+```
